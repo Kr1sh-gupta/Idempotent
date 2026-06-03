@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ticket-demo-postgres
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: ticket_demo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./api/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  redis:
+    image: redis:7
+    container_name: ticket-demo-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    container_name: ticket-demo-api
+    environment:
+      DATABASE_URL: postgresql://demo:demo@postgres:5432/ticket_demo
+      REDIS_URL: redis://redis:6379/0
+      PAYMENT_DELAY_SECONDS: 6
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    container_name: ticket-demo-frontend
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: ticket-demo-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@demo.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Idempotency Playground</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --secondary: #ec4899;
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      --glass-bg: rgba(255, 255, 255, 0.05);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 2rem;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(to right, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    
+    .subtitle { color: var(--text-muted); font-size: 1.1rem; }
+    
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+    
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      transition: transform 0.3s ease;
+    }
+    
+    .glass-card:hover { transform: translateY(-5px); }
+    
+    h3 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--glass-border);
+      padding-bottom: 0.75rem;
+    }
+    
+    .seats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 1.5rem;
+    }
+    
+    button.seat {
+      height: 50px;
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+    }
+    
+    button.seat:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.15);
+      transform: scale(1.05);
+    }
+    
+    button.seat.available {
+      border-color: rgba(16, 185, 129, 0.5);
+    }
+    
+    button.seat.sold {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: rgba(255, 255, 255, 0.5);
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    button.seat.selected {
+      background: var(--primary);
+      border-color: var(--primary-hover);
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
+    }
+    
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .btn {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
+    
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+    }
+    
+    .btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+    
+    .btn:disabled {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.4);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    
+    .btn-spam {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+    }
+    .btn-spam:hover:not(:disabled) {
+      box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+    }
+    
+    .status-area {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      border-left: 4px solid var(--primary);
+    }
+    
+    pre {
+      background: rgba(0, 0, 0, 0.4);
+      color: #a5b4fc;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 500px;
+      font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    
+    pre::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    
+    pre::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+    
+    pre::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+    }
+    
+    .footer-links {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    
+    .footer-links a {
+      color: var(--primary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+    
+    .footer-links a:hover {
+      color: #818cf8;
+      text-decoration: underline;
+    }
+    
+    .log-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .log-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    
+    /* Animation for active fetching */
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    .loading-pulse { animation: pulse 1.5s infinite; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Idempotency Playground</h1>
+    <p class="subtitle">Distributed Locks • Concurrent Request Handling • Idempotent APIs</p>
+  </div>
+  
+  <div class="wrap">
+    <div class="grid">
+      <div class="glass-card">
+        <h3>1. Seat Selection</h3>
+        <p style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+          Selected: <span id="selected" style="color: white; font-weight: 600;">none</span>
+        </p>
+        <div id="seats" class="seats"></div>
+        
+        <div class="controls">
+          <button id="reserve" class="btn">Reserve Seats</button>
+          
+          <button id="pay" class="btn btn-spam" style="margin-top: 1rem;" disabled>
+            Simulate Click Spam (Pay)
+          </button>
+          <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-top: -0.5rem;">
+            Sends 3 identical concurrent requests to trigger 409 Conflict.
+          </p>
+          
+          <button id="confirm" class="btn" style="margin-top: 1rem;" disabled>Confirm Payment</button>
+        </div>
+        
+        <div class="status-area" id="status">
+          Ready. Select a seat to begin.
+        </div>
+      </div>
+      
+      <div class="glass-card">
+        <h3>2. System Timeline & DB State</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Auto-refreshes every 2s</span>
+          <span id="refresh-indicator" style="width: 8px; height: 8px; background: var(--success); border-radius: 50%; display: inline-block;"></span>
+        </div>
+        <pre id="timeline">No reservation context yet.</pre>
+      </div>
+    </div>
+    
+    <div class="footer-links">
+      <p>View Database directly: <a href="http://localhost:5050" target="_blank">pgAdmin (admin@demo.local / admin)</a></p>
+    </div>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html>
