@@ -109,64 +109,49 @@ async function reserve() {
   }
 }
 
-async function payMultipleClicks() {
+let activePaymentIdem = null;
+let paymentInProgress = false;
+
+async function pay() {
   if (!reservationId) return updateStatus("Reserve first", "warning");
   
-  // Use the EXACT SAME idempotency key for all concurrent requests
-  const sameIdem = idem("pay");
-  updateStatus("Initiating payment... Sent 3 concurrent requests. The API will sleep for 6s on the first request to simulate processing delay.", "warning");
+  // Generate idempotency key only on the first click of this session
+  if (!activePaymentIdem) {
+    activePaymentIdem = idem("pay");
+  }
   
-  const payBtn = document.getElementById("pay");
-  payBtn.disabled = true;
-  payBtn.classList.add("loading-pulse");
-
-  let total409s = 0;
-
-  // A robust client will poll if it receives a 409 Conflict
-  const oneCall = async (reqId, attempt = 1) => {
-    console.log(`[Req ${reqId}] Attempt ${attempt} sending...`);
+  const currentClickId = Date.now().toString().slice(-4);
+  updateStatus(`Sent payment request [Click ID: ${currentClickId}]...`, "warning");
+  
+  const reqIdem = activePaymentIdem;
+  
+  try {
     const r = await fetch(`${api}/payments/initiate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reservation_id: reservationId, idempotency_key: sameIdem })
+      body: JSON.stringify({ reservation_id: reservationId, idempotency_key: reqIdem })
     });
     
     if (r.status === 409) {
-      total409s++;
-      console.log(`[Req ${reqId}] Attempt ${attempt} got 409 Conflict (Locked). Waiting 2s to retry...`);
-      // Wait 2 seconds and retry
-      await new Promise(res => setTimeout(res, 2000));
-      return oneCall(reqId, attempt + 1);
+      updateStatus(`⛔ [Click ID: ${currentClickId}] Blocked by Idempotency Lock! Another request is already processing.`, "error");
+      return;
     }
     
     const d = await r.json();
     if (!paymentRef) paymentRef = d.payment_ref;
     
     const idemHeader = r.headers.get("X-Idempotency") || "MISS";
-    console.log(`[Req ${reqId}] Success on attempt ${attempt}. Idempotency: ${idemHeader}`);
-    return { reqId, idemHeader, attempts: attempt };
-  };
-
-  try {
-    // Fire 3 requests at the exact same time
-    const results = await Promise.all([
-      oneCall(1), 
-      oneCall(2), 
-      oneCall(3)
-    ]);
     
-    let resultHtml = `Payment initiated successfully.<br/>`;
-    resultHtml += `Hit 409 Conflict ${total409s} times total across retries.<br/>`;
-    results.forEach(res => {
-      resultHtml += `<div style="margin-top: 5px;">Req ${res.reqId}: ${res.idemHeader} (took ${res.attempts} attempts)</div>`;
-    });
+    if (idemHeader === "HIT") {
+      updateStatus(`⚡ [Click ID: ${currentClickId}] Idempotency Cache Hit! Returned previous payment ID instantly.`, "success");
+    } else {
+      updateStatus(`✅ [Click ID: ${currentClickId}] Payment processed successfully!`, "success");
+      document.getElementById("confirm").disabled = false;
+      document.getElementById("pay").disabled = true; // Disable after successful creation
+    }
     
-    updateStatus(resultHtml, "success");
-    document.getElementById("confirm").disabled = false;
   } catch (err) {
-    updateStatus("Error during payment initiation.", "error");
-  } finally {
-    payBtn.classList.remove("loading-pulse");
+    updateStatus(`Error during payment initiation: ${err.message}`, "error");
   }
   
   await refreshTimeline();
@@ -199,6 +184,7 @@ async function confirm() {
     // Reset flow
     reservationId = null;
     paymentRef = null;
+    activePaymentIdem = null;
     document.getElementById("reserve").disabled = false;
   } catch(err) {
     updateStatus("Error confirming payment.", "error");
@@ -208,7 +194,7 @@ async function confirm() {
 }
 
 document.getElementById("reserve").onclick = reserve;
-document.getElementById("pay").onclick = payMultipleClicks;
+document.getElementById("pay").onclick = pay;
 document.getElementById("confirm").onclick = confirm;
 
 loadSeats();
