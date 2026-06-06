@@ -57,10 +57,22 @@ async function refreshTimeline() {
     if (data.events && data.events.length > 0) {
       data.events.forEach(ev => {
         const time = new Date(ev.at).toLocaleTimeString();
+        
+        let extraHighlight = "";
+        if (ev.details && ev.details.payment_ref) {
+          extraHighlight = `
+            <div style="color: #60a5fa; font-weight: bold; background: rgba(96, 165, 250, 0.1); padding: 4px 8px; border-radius: 4px; margin: 6px 0; font-size: 0.85rem;">
+              <div>🔑 Payment Ref:</div>
+              <div style="font-family: monospace; word-break: break-all; margin-top: 2px;">${ev.details.payment_ref}</div>
+            </div>`;
+        }
+        
         html += `<div class="log-entry">
           <span style="color: var(--warning)">[${time}]</span> 
           <strong style="color: #fff">${ev.event_type}</strong>
-          <br/><span style="color: var(--text-muted)">${JSON.stringify(ev.details)}</span>
+          <br/>
+          ${extraHighlight}
+          <pre style="color: var(--text-muted); margin: 4px 0 0 0; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 0.75rem; overflow-x: auto; font-family: monospace;">${JSON.stringify(ev.details, null, 2)}</pre>
         </div>`;
       });
     } else {
@@ -124,16 +136,33 @@ async function pay() {
   updateStatus(`Sent payment request [Click ID: ${currentClickId}]...`, "warning");
   
   const reqIdem = activePaymentIdem;
+  const isDropSimulated = document.getElementById("simulate-drop").checked;
   
   try {
     const r = await fetch(`${api}/payments/initiate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        ...(isDropSimulated && { "X-Simulate-Drop": "true" })
+      },
       body: JSON.stringify({ reservation_id: reservationId, idempotency_key: reqIdem })
     });
     
     if (r.status === 409) {
       updateStatus(`⛔ [Click ID: ${currentClickId}] Blocked by Idempotency Lock! Another request is already processing.`, "error");
+      return;
+    }
+    
+    if (r.status === 504) {
+      updateStatus(`🚨 NETWORK DISCONNECTED: 504 Gateway Timeout.<br/>The server processed the payment, but the connection dropped before returning the response to you! <br/><br/><strong>Did you get charged? Try clicking "Retry Payment"!</strong>`, "error");
+      
+      const payBtn = document.getElementById("pay");
+      payBtn.textContent = "Retry Payment";
+      payBtn.classList.remove("loading-pulse");
+      payBtn.disabled = false;
+      document.getElementById("simulate-drop").checked = false; // Turn off toggle so next click works
+      
+      await refreshTimeline();
       return;
     }
     
@@ -143,12 +172,13 @@ async function pay() {
     const idemHeader = r.headers.get("X-Idempotency") || "MISS";
     
     if (idemHeader === "HIT") {
-      updateStatus(`⚡ [Click ID: ${currentClickId}] Idempotency Cache Hit! Returned previous payment ID instantly.`, "success");
+      updateStatus(`⚡ <strong>IDEMPOTENCY CACHE HIT!</strong><br/>The server recognized your idempotency key, saw it had already processed the payment during the dropped connection, and instantly returned the cached response. <br/><strong>You were NOT charged twice!</strong>`, "success");
     } else {
       updateStatus(`✅ [Click ID: ${currentClickId}] Payment processed successfully!`, "success");
-      document.getElementById("confirm").disabled = false;
-      document.getElementById("pay").disabled = true; // Disable after successful creation
     }
+    document.getElementById("confirm").disabled = false;
+    document.getElementById("pay").disabled = true; // Disable after successful creation
+    document.getElementById("pay").textContent = "Pay Now"; // Reset text
     
   } catch (err) {
     updateStatus(`Error during payment initiation: ${err.message}`, "error");

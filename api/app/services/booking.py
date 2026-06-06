@@ -73,11 +73,12 @@ def initiate_payment(reservation_id: str):
             if row[0] != "PENDING":
                 raise HTTPException(status_code=409, detail=f"Reservation is {row[0]}")
 
-    log_event(reservation_id, "PAYMENT_INITIATED", {"intentional_delay_seconds": PAYMENT_DELAY_SECONDS})
-    time.sleep(PAYMENT_DELAY_SECONDS)
-
     payment_ref = str(uuid.uuid4())
     payment_id = str(uuid.uuid4())
+    
+    log_event(reservation_id, "PAYMENT_INITIATED", {"payment_ref": payment_ref, "intentional_delay_seconds": PAYMENT_DELAY_SECONDS})
+    time.sleep(PAYMENT_DELAY_SECONDS)
+
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

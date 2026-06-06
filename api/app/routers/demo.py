@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, HTTPException
+from fastapi import APIRouter, Response, HTTPException, Request
 
 from app.schemas import ReserveRequest, PaymentInitRequest, PaymentConfirmRequest
 from app.services.idempotency import request_hash, get_idempotent_response, store_idempotent_response, acquire_idempotency_lock, release_idempotency_lock
@@ -39,10 +39,12 @@ def reserve_seats(req: ReserveRequest, response: Response):
 
 
 @router.post("/payments/initiate")
-def payment_initiate(req: PaymentInitRequest, response: Response):
+def payment_initiate(req: PaymentInitRequest, response: Response, request: Request):
     expire_pending_reservations()
     cached, status_code, hit = maybe_idempotent(req.idempotency_key)
     if hit:
+        if request.headers.get("X-Simulate-Drop") == "true":
+            raise HTTPException(status_code=504, detail="Simulated Network Drop: Gateway Timeout")
         response.headers["X-Idempotency"] = "HIT"
         return cached
 
@@ -50,8 +52,14 @@ def payment_initiate(req: PaymentInitRequest, response: Response):
         payload = req.model_dump()
         result = initiate_payment(req.reservation_id)
         store_idempotent_response(req.idempotency_key, "/payments/initiate", request_hash(payload), result, 200)
+        
+        if request.headers.get("X-Simulate-Drop") == "true":
+            raise HTTPException(status_code=504, detail="Simulated Network Drop: Gateway Timeout")
+
         response.headers["X-Idempotency"] = "MISS"
         return result
+    except HTTPException:
+        raise
     except Exception:
         release_idempotency_lock(req.idempotency_key)
         raise
